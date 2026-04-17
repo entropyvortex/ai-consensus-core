@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/npm/l/%40entropyvortex%2Fconsensus-core)](./LICENSE)
 [![types](https://img.shields.io/npm/types/%40entropyvortex%2Fconsensus-core)](#types)
 
-This is the engine that powers [Roundtable](https://github.com/entropyvortex) and the [`consensus-mcp`](https://github.com/entropyvortex/consensus-mcp) MCP server — extracted into a standalone library so anyone can wire multi-model debate into their own product.
+This is the engine that powers [Roundtable](https://github.com/entropyvortex/roundtable) and the [`consensus-mcp`](https://github.com/entropyvortex/consensus-mcp) MCP server — extracted into a standalone library so anyone can wire multi-model debate into their own product.
 
 ## Why this exists
 
