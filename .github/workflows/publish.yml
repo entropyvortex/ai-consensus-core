@@ -17,7 +17,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
           registry-url: https://registry.npmjs.org
 
       # `npm install` (not `npm ci`) works around npm/cli#4828: vitest 4.x pulls
