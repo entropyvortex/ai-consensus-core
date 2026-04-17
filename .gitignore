@@ -15,3 +15,8 @@ yarn-error.log*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea
+
+# Library — do not commit the lockfile; platform-specific optional deps
+# (e.g. @rolldown/binding-*) break cross-platform CI when the lockfile
+# is generated on a different arch than the runner. See npm/cli#4828.
+package-lock.json
