@@ -20,7 +20,10 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci
+      # `npm install` (not `npm ci`) works around npm/cli#4828: vitest 4.x pulls
+      # rolldown's platform-specific native bindings as optional deps, and
+      # `npm ci` can skip them on certain lockfile/platform combinations.
+      - run: npm install
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
