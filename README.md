@@ -1,13 +1,13 @@
-# @entropyvortex/consensus-core
+# @entropyvortex/ai-consensus-core
 
 > Turn any set of AI models into a real roundtable.
 > Production-grade Consensus Validation Protocol (CVP) for TypeScript — zero LLM-provider coupling, highly observable, shipped as a clean npm package.
 
-[![npm](https://img.shields.io/npm/v/%40entropyvortex%2Fconsensus-core)](https://www.npmjs.com/package/@entropyvortex/consensus-core)
-[![license](https://img.shields.io/npm/l/%40entropyvortex%2Fconsensus-core)](./LICENSE)
-[![types](https://img.shields.io/npm/types/%40entropyvortex%2Fconsensus-core)](#types)
+[![npm](https://img.shields.io/npm/v/%40entropyvortex%2Fai-consensus-core)](https://www.npmjs.com/package/@entropyvortex/ai-consensus-core)
+[![license](https://img.shields.io/npm/l/%40entropyvortex%2Fai-consensus-core)](./LICENSE)
+[![types](https://img.shields.io/npm/types/%40entropyvortex%2Fai-consensus-core)](#types)
 
-This is the engine that powers [Roundtable](https://github.com/entropyvortex/roundtable) and the [`consensus-mcp`](https://github.com/entropyvortex/consensus-mcp) MCP server — extracted into a standalone library so anyone can wire multi-model debate into their own product.
+This is the engine that powers [Roundtable](https://github.com/entropyvortex/roundtable) and the [`ai-consensus-mcp`](https://github.com/entropyvortex/ai-consensus-mcp) MCP server — extracted into a standalone library so anyone can wire multi-model debate into their own product.
 
 ## Why this exists
 
@@ -26,11 +26,11 @@ You configure any number of models — Grok, Claude, Gemini, DeepSeek, whatever 
 ## Install
 
 ```bash
-npm install @entropyvortex/consensus-core
+npm install @entropyvortex/ai-consensus-core
 # or
-pnpm add @entropyvortex/consensus-core
+pnpm add @entropyvortex/ai-consensus-core
 # or
-yarn add @entropyvortex/consensus-core
+yarn add @entropyvortex/ai-consensus-core
 ```
 
 ESM-only. Node ≥ 20. Runtime dependencies: `zod` + Node's built-in `events`. That's it.
@@ -42,7 +42,7 @@ import {
   ConsensusEngine,
   PERSONAS,
   type ModelCaller,
-} from "@entropyvortex/consensus-core";
+} from "@entropyvortex/ai-consensus-core";
 
 // 1) Adapt your provider of choice to the ModelCaller shape.
 //    This one targets any OpenAI-compatible endpoint (Grok, Claude, OpenAI, Groq…).
@@ -294,7 +294,7 @@ Plus one judge:
 | `judge` | Consensus Judge  | Non-voting synthesizer. Produces Majority / Minority / Unresolved sections. |
 
 ```ts
-import { PERSONAS, JUDGE_PERSONA, getPersonaById } from "@entropyvortex/consensus-core";
+import { PERSONAS, JUDGE_PERSONA, getPersonaById } from "@entropyvortex/ai-consensus-core";
 
 const riskAnalyst = getPersonaById("pessimist");
 ```
@@ -302,7 +302,7 @@ const riskAnalyst = getPersonaById("pessimist");
 ## Scoring
 
 ```ts
-import { consensusScore, detectDisagreements } from "@entropyvortex/consensus-core";
+import { consensusScore, detectDisagreements } from "@entropyvortex/ai-consensus-core";
 
 consensusScore([85, 82, 78, 40]);
 
@@ -361,13 +361,13 @@ import type {
   RoundCompleteEvent,
   FinalResultEvent,
   // …etc
-} from "@entropyvortex/consensus-core";
+} from "@entropyvortex/ai-consensus-core";
 ```
 
 Zod schemas are exported too, for boundary validation on your side:
 
 ```ts
-import { PersonaSchema, ParticipantSchema } from "@entropyvortex/consensus-core";
+import { PersonaSchema, ParticipantSchema } from "@entropyvortex/ai-consensus-core";
 
 ParticipantSchema.parse(untrustedInput);
 ```
@@ -375,8 +375,8 @@ ParticipantSchema.parse(untrustedInput);
 ## Development
 
 ```bash
-git clone https://github.com/entropyvortex/consensus-core.git
-cd consensus-core
+git clone https://github.com/entropyvortex/ai-consensus-core.git
+cd ai-consensus-core
 npm install
 npm run test        # 136 tests, vitest
 npm run test:coverage
@@ -400,7 +400,7 @@ If you care about serious multi-AI reasoning, persistent agent memory, and safe,
 
 ## See also
 
-- [`consensus-mcp`](https://github.com/entropyvortex/consensus-mcp) — thin stdio MCP server that wraps this library and exposes `consensus` as a single tool for Claude Code / Cursor / Windsurf / any MCP host.
+- [`ai-consensus-mcp`](https://github.com/entropyvortex/ai-consensus-mcp) — thin stdio MCP server that wraps this library and exposes `consensus` as a single tool for Claude Code / Cursor / Windsurf / any MCP host.
 
 ## License
 

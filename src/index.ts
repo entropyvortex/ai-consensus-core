@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-// @entropyvortex/consensus-core — public API
+// @entropyvortex/ai-consensus-core — public API
 // ─────────────────────────────────────────────────────────────
 
 export { ConsensusEngine, CONSENSUS_DEFAULTS, MAX_ROUNDS_CAP } from "./engine.js";
