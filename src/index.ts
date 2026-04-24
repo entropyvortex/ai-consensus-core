@@ -4,12 +4,7 @@
 
 export { ConsensusEngine, CONSENSUS_DEFAULTS, MAX_ROUNDS_CAP } from "./engine.js";
 
-export {
-  PERSONAS,
-  JUDGE_PERSONA,
-  getPersonaById,
-  getPersonaOrDefault,
-} from "./personas.js";
+export { JUDGE_PERSONA } from "./personas.js";
 
 export {
   buildParticipantSystemPrompt,

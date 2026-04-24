@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { JUDGE_PERSONA, PERSONAS } from "../personas.js";
+import { JUDGE_PERSONA } from "../personas.js";
+import { TEST_PERSONAS } from "./_fixtures.js";
 import {
   buildJudgeSystemPrompt,
   buildJudgeUserPrompt,
@@ -99,7 +100,7 @@ describe("formatPreviousResponses", () => {
 });
 
 describe("buildParticipantSystemPrompt", () => {
-  const persona = PERSONAS[0]!; // Risk Analyst
+  const persona = TEST_PERSONAS[0]!; // Risk Analyst
 
   it("includes the persona system prompt verbatim", () => {
     const out = buildParticipantSystemPrompt({
@@ -196,8 +197,8 @@ describe("buildJudgeSystemPrompt", () => {
 
 describe("buildJudgeUserPrompt", () => {
   const participants: Participant[] = [
-    { id: "p1", modelId: "claude-opus-4-5", persona: PERSONAS[0]! },
-    { id: "p2", modelId: "gpt-4o", persona: PERSONAS[1]! },
+    { id: "p1", modelId: "claude-opus-4-5", persona: TEST_PERSONAS[0]! },
+    { id: "p2", modelId: "gpt-4o", persona: TEST_PERSONAS[1]! },
   ];
 
   it("labels each response with persona name and model id", () => {

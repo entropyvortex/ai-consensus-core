@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ConsensusEngine } from "../engine.js";
-import { PERSONAS, JUDGE_PERSONA } from "../personas.js";
+import { JUDGE_PERSONA } from "../personas.js";
+import { TEST_PERSONAS } from "./_fixtures.js";
 import type {
   ConsensusOptions,
   ModelCallRequest,
@@ -14,7 +15,7 @@ import type {
 // ─────────────────────────────────────────────────────────────
 
 function P(id: string, personaIdx = 0): Participant {
-  const persona = PERSONAS[personaIdx % PERSONAS.length]!;
+  const persona = TEST_PERSONAS[personaIdx % TEST_PERSONAS.length]!;
   return { id, modelId: `model-${id}`, persona };
 }
 
@@ -69,7 +70,7 @@ function fixedCaller(
   return { caller, calls };
 }
 
-const BASE_PARTICIPANTS: readonly Participant[] = [P("p1", 0), P("p2", 1), P("p3", 6)];
+const BASE_PARTICIPANTS: readonly Participant[] = [P("p1", 0), P("p2", 1), P("p3", 2)];
 
 function baseOptions(
   overrides: Partial<ConsensusOptions> = {},

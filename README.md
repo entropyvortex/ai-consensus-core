@@ -40,11 +40,33 @@ ESM-only. Node ≥ 20. Runtime dependencies: `zod` + Node's built-in `events`. T
 ```ts
 import {
   ConsensusEngine,
-  PERSONAS,
   type ModelCaller,
+  type Persona,
 } from "ai-consensus-core";
 
-// 1) Adapt your provider of choice to the ModelCaller shape.
+// 1) Bring your own personas. The library ships only the non-voting
+//    JUDGE_PERSONA — debate personas are caller-owned content.
+//    See docs/personas.md for a copy-paste block of the seven defaults.
+const riskAnalyst: Persona = {
+  id: "pessimist",
+  name: "Risk Analyst",
+  description: "Surfaces failure modes and tail risks.",
+  systemPrompt: "You are a rigorous Risk Analyst. Surface hidden dangers, second-order effects, and plausible failure modes. Be precise and constructive.",
+};
+const firstPrinciples: Persona = {
+  id: "first-principles",
+  name: "First-Principles Engineer",
+  description: "Decomposes every claim to axioms.",
+  systemPrompt: "You are a First-Principles Engineer. Decompose every claim into fundamental axioms. Reject analogies and expose hidden premises.",
+};
+const domainExpert: Persona = {
+  id: "domain-expert",
+  name: "Domain Expert",
+  description: "Practical implementation knowledge and edge cases.",
+  systemPrompt: "You are a seasoned Domain Expert. Ground your analysis in real-world implementation details, anti-patterns, and edge cases.",
+};
+
+// 2) Adapt your provider of choice to the ModelCaller shape.
 //    This one targets any OpenAI-compatible endpoint (Grok, Claude, OpenAI, Groq…).
 const caller: ModelCaller = async ({ system, user, modelId, temperature, maxOutputTokens, signal }) => {
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
@@ -68,7 +90,7 @@ const caller: ModelCaller = async ({ system, user, modelId, temperature, maxOutp
   return { content: json.choices[0].message.content };
 };
 
-// 2) Wire up observability.
+// 3) Wire up observability.
 const engine = new ConsensusEngine(caller);
 
 engine.on("roundStart", (e) => console.log(`▶ ${e.label}`));
@@ -77,16 +99,16 @@ engine.on("disagreementDetected", (e) =>
   console.log(`  ⚠ ${e.disagreement.label} (Δ=${e.disagreement.severity})`),
 );
 
-// 3) Run.
+// 4) Run.
 const result = await engine.run({
   question: "Should early-stage startups adopt microservices from day one?",
   participants: [
-    { id: "p1", modelId: "grok-4", persona: PERSONAS[0]! }, // Risk Analyst
-    { id: "p2", modelId: "grok-4", persona: PERSONAS[1]! }, // First-Principles
-    { id: "p3", modelId: "grok-4", persona: PERSONAS[6]! }, // Domain Expert
+    { id: "p1", modelId: "grok-4", persona: riskAnalyst },
+    { id: "p2", modelId: "grok-4", persona: firstPrinciples },
+    { id: "p3", modelId: "grok-4", persona: domainExpert },
   ],
   maxRounds: 4,
-  judge: { modelId: "grok-4" },
+  judge: { modelId: "grok-4" }, // uses the shipped JUDGE_PERSONA
 });
 
 console.log(`Final score: ${result.finalScore}`);
@@ -275,28 +297,32 @@ interface ConsensusOptions {
 
 ## Personas
 
-Exactly the seven personas from the battle-tested Roundtable playbook:
+The library ships **only** the non-voting judge persona (`JUDGE_PERSONA`).
+Debate personas are caller-owned content — construct any object matching
+`PersonaSchema` and pass it on each `Participant`.
 
-| id                    | Name                       | Role                                                                     |
-| --------------------- | -------------------------- | ------------------------------------------------------------------------ |
-| `pessimist`           | Risk Analyst               | Surfaces failure modes, tail risks, second-order effects.                |
-| `first-principles`    | First-Principles Engineer  | Decomposes every claim to axioms; rejects analogies.                     |
-| `vc-specialist`       | VC Funds Specialist        | Markets, moats, unit economics, defensibility.                           |
-| `scientific-skeptic`  | Scientific Skeptic         | Demands evidence, questions methodology, flags fallacies.                |
-| `optimistic-futurist` | Optimistic Futurist        | Exponential trends, paradigm shifts, grounded upside.                    |
-| `devils-advocate`     | Devil's Advocate           | Constructs the strongest counter-arguments.                              |
-| `domain-expert`       | Domain Expert              | Practical implementation knowledge, edge cases, reality checks.          |
+For a copy-paste block of the seven debate personas from the Roundtable
+playbook (Risk Analyst, First-Principles Engineer, VC Specialist,
+Scientific Skeptic, Optimistic Futurist, Devil's Advocate, Domain Expert),
+see [`docs/personas.md`](./docs/personas.md).
 
-Plus one judge:
+The judge:
 
 | id      | Name             | Role                                                                        |
 | ------- | ---------------- | --------------------------------------------------------------------------- |
 | `judge` | Consensus Judge  | Non-voting synthesizer. Produces Majority / Minority / Unresolved sections. |
 
-```ts
-import { PERSONAS, JUDGE_PERSONA, getPersonaById } from "ai-consensus-core";
+`JUDGE_PERSONA.systemPrompt` is the engine's default when
+`ConsensusOptions.judge.systemPrompt` is omitted. Override it only if the
+replacement emits the same four `##` headings and trailing
+`JUDGE_CONFIDENCE: N` line — `extractJudgeSection` /
+`extractJudgeConfidence` key off that contract.
 
-const riskAnalyst = getPersonaById("pessimist");
+```ts
+import { JUDGE_PERSONA, PersonaSchema, type Persona } from "ai-consensus-core";
+
+// Validate caller-supplied personas at the boundary:
+const persona = PersonaSchema.parse(untrusted);
 ```
 
 ## Scoring

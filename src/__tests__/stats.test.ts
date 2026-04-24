@@ -7,7 +7,7 @@ import {
   shuffle,
   stddev,
 } from "../stats.js";
-import { PERSONAS } from "../personas.js";
+import { TEST_PERSONAS } from "./_fixtures.js";
 import type { Participant, ParticipantResponse } from "../types.js";
 
 function makeResponse(
@@ -98,9 +98,9 @@ describe("consensusScore", () => {
 
 describe("detectDisagreements", () => {
   const participants: Participant[] = [
-    { id: "a", modelId: "m", persona: PERSONAS[0]! }, // Risk Analyst
-    { id: "b", modelId: "m", persona: PERSONAS[1]! }, // First-Principles
-    { id: "c", modelId: "m", persona: PERSONAS[6]! }, // Domain Expert
+    { id: "a", modelId: "m", persona: TEST_PERSONAS[0]! }, // Risk Analyst
+    { id: "b", modelId: "m", persona: TEST_PERSONAS[1]! }, // First-Principles
+    { id: "c", modelId: "m", persona: TEST_PERSONAS[2]! }, // Domain Expert
   ];
 
   it("flags pairs whose confidence delta is at or above the default threshold (20)", () => {
