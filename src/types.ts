@@ -223,6 +223,17 @@ export interface ConsensusOptions {
     temperature?: number;
     /** Max output tokens for judge. Defaults to 1500. */
     maxOutputTokens?: number;
+    /**
+     * Override the judge system prompt. Defaults to `JUDGE_PERSONA.systemPrompt`.
+     *
+     * Contract: the override must instruct the model to emit the same four
+     * `## Majority Position` / `## Minority Positions` / `## Unresolved Disputes`
+     * / `## Synthesis Confidence` headings and a trailing `JUDGE_CONFIDENCE: N`
+     * line. `extractJudgeSection` and `extractJudgeConfidence` key off those
+     * markers — break the contract and the corresponding fields on
+     * `SynthesisResult` will come back empty / default to 50.
+     */
+    systemPrompt?: string;
   };
   /** Non-negative integer. If set, uses a seeded PRNG so round-order randomization is deterministic. */
   randomSeed?: number;

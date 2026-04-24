@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ConsensusEngine } from "../engine.js";
-import { PERSONAS } from "../personas.js";
+import { PERSONAS, JUDGE_PERSONA } from "../personas.js";
 import type {
   ConsensusOptions,
   ModelCallRequest,
@@ -509,6 +509,49 @@ describe("ConsensusEngine — judge synthesis", () => {
     expect(result.synthesis?.judgeConfidence).toBe(77);
     // Main caller should NOT have been asked to do the judge work.
     expect(pCalls.find((c) => c.participantId === "judge")).toBeUndefined();
+  });
+
+  it("uses JUDGE_PERSONA.systemPrompt by default", async () => {
+    const { caller, calls } = fixedCaller({ p1: [70, 70], p2: [70, 70] });
+    const engine = new ConsensusEngine(caller);
+    await engine.run(
+      baseOptions({
+        participants: [P("p1"), P("p2")],
+        maxRounds: 2,
+        judge: { modelId: "judge-model" },
+      }),
+    );
+    const judgeCall = calls.find((c) => c.participantId === "judge");
+    expect(judgeCall).toBeDefined();
+    expect(judgeCall!.system).toContain(JUDGE_PERSONA.systemPrompt);
+  });
+
+  it("applies a custom judge.systemPrompt override", async () => {
+    // The override must still produce the four-section / JUDGE_CONFIDENCE
+    // contract for the parser to populate the synthesis fields. We assert
+    // that (a) the engine forwards the override into the judge caller's
+    // system prompt verbatim, (b) the default JUDGE_PERSONA prompt is
+    // *not* present when overridden, and (c) the debated question is still
+    // appended by buildJudgeSystemPrompt.
+    const customPrompt =
+      "You are a Minimal Synthesizer. Emit ## Majority Position / ## Minority Positions / ## Unresolved Disputes / ## Synthesis Confidence sections and end with JUDGE_CONFIDENCE: [0-100].";
+    const { caller, calls } = fixedCaller({ p1: [70, 70], p2: [70, 70] }, 88);
+    const engine = new ConsensusEngine(caller);
+    const result = await engine.run(
+      baseOptions({
+        question: "Does the override path work?",
+        participants: [P("p1"), P("p2")],
+        maxRounds: 2,
+        judge: { modelId: "judge-model", systemPrompt: customPrompt },
+      }),
+    );
+    const judgeCall = calls.find((c) => c.participantId === "judge");
+    expect(judgeCall).toBeDefined();
+    expect(judgeCall!.system).toContain(customPrompt);
+    expect(judgeCall!.system).not.toContain(JUDGE_PERSONA.systemPrompt);
+    expect(judgeCall!.system).toContain("Does the override path work?");
+    // Judge body from the fake caller still matches the contract, so parsing succeeds.
+    expect(result.synthesis?.judgeConfidence).toBe(88);
   });
 
   it("fires synthesisStart then synthesisComplete", async () => {

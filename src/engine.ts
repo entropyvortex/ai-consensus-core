@@ -201,6 +201,7 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
           judgeTemperature: opts.judge.temperature ?? DEFAULTS.judgeTemperature,
           judgeMaxOutputTokens:
             opts.judge.maxOutputTokens ?? DEFAULTS.judgeMaxOutputTokens,
+          judgeSystemPrompt: opts.judge.systemPrompt ?? JUDGE_PERSONA.systemPrompt,
           finalResponses: lastRound.responses,
           participants: opts.participants,
           question: opts.question,
@@ -446,6 +447,7 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
     judgeCaller: ModelCaller;
     judgeTemperature: number;
     judgeMaxOutputTokens: number;
+    judgeSystemPrompt: string;
     finalResponses: readonly ParticipantResponse[];
     participants: readonly Participant[];
     question: string;
@@ -457,6 +459,7 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
       judgeCaller,
       judgeTemperature,
       judgeMaxOutputTokens,
+      judgeSystemPrompt,
       finalResponses,
       participants,
       question,
@@ -467,7 +470,7 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
     this.emit("synthesisStart", { modelId: judgeModelId });
 
     const system = buildJudgeSystemPrompt({
-      judgeSystemPrompt: JUDGE_PERSONA.systemPrompt,
+      judgeSystemPrompt,
       question,
     });
     const user = buildJudgeUserPrompt({
