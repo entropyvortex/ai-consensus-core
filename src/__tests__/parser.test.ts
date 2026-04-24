@@ -82,6 +82,14 @@ describe("extractJudgeConfidence", () => {
   it("clamps values above 100", () => {
     expect(extractJudgeConfidence("JUDGE_CONFIDENCE: 250")).toBe(100);
   });
+
+  it("returns 50 when no digits follow the marker", () => {
+    // Mirrors the extractConfidence malformed-value case. The prefix is
+    // present but the tail is non-numeric, so parseInt("") → NaN and the
+    // clamp helper collapses it to the 50 default.
+    expect(extractJudgeConfidence("JUDGE_CONFIDENCE: not-a-number")).toBe(50);
+    expect(extractJudgeConfidence("JUDGE_CONFIDENCE: [abc]")).toBe(50);
+  });
 });
 
 describe("extractJudgeSection", () => {
