@@ -233,6 +233,73 @@ export interface ModelCallResponse {
 4. **Don't swallow other errors.** Throw. The engine captures the error into `ParticipantResponse` and keeps running.
 5. **Return the full content verbatim.** Do not strip the trailing `CONFIDENCE:` line — the parser needs it.
 
+## Tool calling
+
+Participants can invoke tools mid-turn. The library never executes a tool itself — it plumbs the request from the model to a host-supplied `ToolExecutor`, feeds the results back, and re-invokes the caller until the model returns final content (or `maxToolIterations` is exhausted).
+
+```ts
+import { ConsensusEngine, type ToolDefinition, type ToolExecutor } from "ai-consensus-core";
+
+const READ_FILE_TOOL: ToolDefinition = {
+  name: "read_file",
+  description: "Read a file by absolute path.",
+  parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+};
+
+const participants = [
+  {
+    id: "domain",
+    modelId: "claude-sonnet-4-6",
+    persona: domainExpertPersona,
+    tools: [READ_FILE_TOOL], // declared per-participant
+  },
+  // …
+];
+
+const toolExecutor: ToolExecutor = async (call, ctx) => {
+  // ctx: { participantId, round, phase, signal? }
+  if (call.name === "read_file") {
+    const args = call.arguments as { path: string };
+    return { content: await readFile(args.path, "utf8") };
+    // …or { error: "permission denied" } to feed an error back into the conversation
+  }
+  return { error: `unknown tool ${call.name}` };
+};
+
+const engine = new ConsensusEngine(modelCaller);
+const result = await engine.run({
+  question: "What does the build output say?",
+  participants,
+  toolExecutor,
+  maxToolIterations: 8, // optional, default 8, clamped to [1, 32]
+});
+```
+
+**ModelCaller responsibilities** (when `tools` is present on the request):
+
+- Translate the `tools` array into whatever the underlying provider expects (OpenAI's `tools`, Anthropic's `tools`, etc.).
+- Translate `toolCallTurns` (when present, on follow-up calls) into the conversation history the provider expects — typically: assistant message with tool_calls, then tool messages with results, in order.
+- Parse the model's response and surface `toolCalls` on `ModelCallResponse` if the model wants to dispatch tools. Each `ToolCall` carries `{ id, name, arguments }` where `arguments` is **already JSON-parsed**. The library never parses the model's raw argument string.
+
+**Engine guarantees:**
+
+- The tool loop runs **per participant turn**, separately for each model call. Tool history does not leak between participants or between rounds.
+- The executor receives a fresh `ToolCallContext` (with `participantId`, `round`, `phase`, `signal`) per call.
+- An exception thrown by the executor is captured as a `{ error: message }` result and forwarded back into the conversation — the participant turn does not abort.
+- `AbortError` thrown by the executor (or `signal` triggered) propagates up and aborts the whole run with `stopReason: "aborted"`.
+- Hitting `maxToolIterations` breaks the loop and uses the last response's `content` — even if the model still wants more tools.
+- Without `toolExecutor`, the engine ignores any `toolCalls` on the response: 0.10 behaviour preserved exactly.
+
+**Events:**
+
+```ts
+engine.on("toolCallStart",    (e: ToolCallStartEvent)    => void);
+engine.on("toolCallComplete", (e: ToolCallCompleteEvent) => void); // ok: boolean, durationMs, preview (≤ 200 chars)
+engine.on("toolError",        (e: ToolErrorEvent)        => void); // fires when ok === false
+```
+
+`iteration` (1-based) on these events disambiguates round-trips within a single participant turn.
+
 ## Events
 
 ```ts
@@ -248,6 +315,9 @@ engine.on("synthesisStart",       (e: SynthesisStartEvent)       => void);
 engine.on("synthesisToken",       (e: SynthesisTokenEvent)       => void);
 engine.on("synthesisComplete",    (e: SynthesisCompleteEvent)    => void);
 engine.on("finalResult",          (e: FinalResultEvent)          => void);
+engine.on("toolCallStart",        (e: ToolCallStartEvent)        => void); // per dispatch
+engine.on("toolCallComplete",     (e: ToolCallCompleteEvent)     => void);
+engine.on("toolError",            (e: ToolErrorEvent)            => void); // ok === false
 engine.on("error",                (err: Error)                   => void);
 ```
 
