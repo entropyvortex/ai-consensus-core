@@ -2,7 +2,12 @@
 // ai-consensus-core — public API
 // ─────────────────────────────────────────────────────────────
 
-export { ConsensusEngine, CONSENSUS_DEFAULTS, MAX_ROUNDS_CAP } from "./engine.js";
+export {
+  ConsensusEngine,
+  CONSENSUS_DEFAULTS,
+  MAX_ROUNDS_CAP,
+  MAX_TOOL_ITERATIONS_CAP,
+} from "./engine.js";
 
 export { JUDGE_PERSONA } from "./personas.js";
 
@@ -34,7 +39,7 @@ export { TypedEventEmitter } from "./events.js";
 export type { ConsensusEmitter } from "./events.js";
 
 // Schemas (zod) — exported for callers that want boundary validation.
-export { PersonaSchema, ParticipantSchema, PHASES } from "./types.js";
+export { PersonaSchema, ParticipantSchema, ToolDefinitionSchema, PHASES } from "./types.js";
 
 // Types
 export type {
@@ -52,6 +57,13 @@ export type {
   ConsensusResult,
   ConsensusOptions,
   StopReason,
+  // Tool calling
+  ToolDefinition,
+  ToolCall,
+  ToolCallTurn,
+  ToolCallContext,
+  ToolExecutionResult,
+  ToolExecutor,
   // Events
   ConsensusEventMap,
   ConsensusEventName,
@@ -67,4 +79,7 @@ export type {
   SynthesisTokenEvent,
   SynthesisCompleteEvent,
   FinalResultEvent,
+  ToolCallStartEvent,
+  ToolCallCompleteEvent,
+  ToolErrorEvent,
 } from "./types.js";

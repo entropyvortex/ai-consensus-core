@@ -24,6 +24,13 @@ export const ParticipantSchema = z.object({
   modelId: z.string().min(1),
   persona: PersonaSchema,
   label: z.string().optional(),
+  /**
+   * Tools this participant is allowed to invoke during its turn. The library
+   * forwards the list to the ModelCaller verbatim — semantics (dispatch,
+   * loop, error handling) live in the engine when `ConsensusOptions.toolExecutor`
+   * is provided. Empty/undefined ⇒ classic text-only debate (0.10 behaviour).
+   */
+  tools: z.array(z.lazy(() => ToolDefinitionSchema)).optional(),
 });
 
 export type Participant = z.infer<typeof ParticipantSchema>;
@@ -52,6 +59,83 @@ export interface TokenUsage {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Tool calling
+// ─────────────────────────────────────────────────────────────
+// Engine-orchestrated tool calling sits between the ModelCaller and the
+// host. The library never parses tool arguments, never invokes a tool, and
+// never decides what tools a participant has — it just plumbs:
+//
+//   1. `Participant.tools` flows into each `ModelCallRequest.tools`.
+//   2. If the response carries `toolCalls`, the engine dispatches each one
+//      to `ConsensusOptions.toolExecutor` (host-supplied) and feeds results
+//      back into a follow-up call via `ModelCallRequest.toolCallTurns`.
+//   3. The loop terminates when the model returns a response with no
+//      `toolCalls`, or when `maxToolIterations` is hit.
+//
+// Hosts that don't supply a `toolExecutor` see no behaviour change — every
+// new field is optional and the engine's flow degrades to 0.10 verbatim.
+
+/** OpenAI-style tool definition (function-call shape). */
+export const ToolDefinitionSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  /**
+   * JSON Schema (object). The library does not validate or interpret the
+   * schema — it forwards verbatim to the ModelCaller, which is responsible
+   * for translating it into whatever the underlying provider expects.
+   */
+  parameters: z.unknown(),
+});
+
+export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
+
+/** A tool-call request emitted by an assistant turn. */
+export interface ToolCall {
+  /** Unique id assigned by the model — round-trip back in tool results. */
+  id: string;
+  /** Tool name; must match a `ToolDefinition.name` from the request. */
+  name: string;
+  /**
+   * Already JSON-parsed arguments. Callers MUST parse the model's raw
+   * argument string before populating this; the library never parses.
+   */
+  arguments: unknown;
+}
+
+/** Result of executing a tool call. Either a content string or an error. */
+export type ToolExecutionResult = { content: string } | { error: string };
+
+/**
+ * One turn of tool-call dispatch. The engine appends one entry per iteration
+ * of the tool loop, in order, and forwards the accumulated history on each
+ * follow-up `ModelCallRequest`.
+ */
+export interface ToolCallTurn {
+  /** The tool calls the assistant requested in this turn. */
+  toolCalls: readonly ToolCall[];
+  /** Results, in the same order as `toolCalls`. */
+  toolResults: readonly ToolExecutionResult[];
+}
+
+/** Context passed to the host's `ToolExecutor` so it knows what's running. */
+export interface ToolCallContext {
+  participantId: string;
+  round: number;
+  phase: Phase;
+  signal?: AbortSignal;
+}
+
+/**
+ * Host-supplied tool executor. The engine awaits this once per tool call.
+ * Throw on unrecoverable errors; return `{ error }` to feed an error string
+ * back into the conversation as a normal tool result (model can recover).
+ */
+export type ToolExecutor = (
+  call: ToolCall,
+  ctx: ToolCallContext,
+) => Promise<ToolExecutionResult>;
+
+// ─────────────────────────────────────────────────────────────
 // ModelCaller — the one extension point of the library
 // ─────────────────────────────────────────────────────────────
 
@@ -76,6 +160,22 @@ export interface ModelCallRequest {
   signal?: AbortSignal;
   /** Optional streaming sink; callers MAY call this with partial tokens. */
   onToken?: (token: string) => void;
+  /**
+   * Tools available for this turn. Forwarded verbatim from `Participant.tools`
+   * (and only for participant calls — judge calls never carry tools). Absent
+   * when the participant declares no tools.
+   */
+  tools?: readonly ToolDefinition[];
+  /**
+   * Tool-call history for this single participant turn, populated by the
+   * engine when re-invoking the caller after dispatching tool calls. Each
+   * entry is one round-trip through the tool loop. Absent on the first call
+   * of a turn.
+   *
+   * Callers MUST translate this into whatever the provider expects (e.g.
+   * for OpenAI, append assistant + tool messages to the conversation).
+   */
+  toolCallTurns?: readonly ToolCallTurn[];
 }
 
 export interface ModelCallResponse {
@@ -83,6 +183,18 @@ export interface ModelCallResponse {
   content: string;
   /** Optional token usage, if the provider surfaces it. */
   usage?: TokenUsage;
+  /**
+   * Tool calls the model wants to dispatch this turn. If non-empty AND the
+   * engine has a `toolExecutor`, the engine runs each call and re-invokes
+   * the caller with the results in `ModelCallRequest.toolCallTurns`. If empty
+   * or absent, the engine treats `content` as the participant's final turn.
+   *
+   * If the engine has no `toolExecutor` configured but the response carries
+   * `toolCalls`, they are ignored and `content` is used as-is — preserves
+   * 0.10 backward compatibility for callers that opt into tool streaming
+   * but don't wire an executor.
+   */
+  toolCalls?: readonly ToolCall[];
 }
 
 export type ModelCaller = (request: ModelCallRequest) => Promise<ModelCallResponse>;
@@ -239,6 +351,24 @@ export interface ConsensusOptions {
   randomSeed?: number;
   /** Propagates cancellation to every ModelCaller and aborts the loop. */
   signal?: AbortSignal;
+  /**
+   * Host-supplied tool executor. When set, the engine drives the tool-call
+   * loop for participants whose `tools` list is non-empty: dispatches each
+   * `ToolCall` returned by the model, feeds results back via
+   * `ModelCallRequest.toolCallTurns`, and emits `toolCallStart` /
+   * `toolCallComplete` / `toolError` events.
+   *
+   * When omitted, the engine ignores any `toolCalls` in `ModelCallResponse`
+   * and treats `content` as the participant's final turn — exact 0.10 behaviour.
+   */
+  toolExecutor?: ToolExecutor;
+  /**
+   * Maximum tool-loop iterations per participant turn. After this many
+   * round-trips through the executor, the engine breaks out and uses the
+   * last response's `content` as the participant's turn — even if the model
+   * still wants to call more tools. Defaults to 8. Bounded to [1, 32].
+   */
+  maxToolIterations?: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -319,6 +449,39 @@ export interface FinalResultEvent {
   result: ConsensusResult;
 }
 
+// ── Tool-calling events ─────────────────────────────────────
+
+export interface ToolCallStartEvent {
+  participantId: string;
+  round: number;
+  phase: Phase;
+  /** 1-based iteration counter within this participant's tool loop. */
+  iteration: number;
+  call: ToolCall;
+}
+
+export interface ToolCallCompleteEvent {
+  participantId: string;
+  round: number;
+  phase: Phase;
+  iteration: number;
+  call: ToolCall;
+  durationMs: number;
+  /** True when the executor returned `{ content }`; false when it returned `{ error }`. */
+  ok: boolean;
+  /** Truncated preview of the result payload (first 200 chars). */
+  preview: string;
+}
+
+export interface ToolErrorEvent {
+  participantId: string;
+  round: number;
+  phase: Phase;
+  iteration: number;
+  call: ToolCall;
+  error: string;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Event map (for typed EventEmitter)
 // ─────────────────────────────────────────────────────────────
@@ -336,6 +499,9 @@ export interface ConsensusEventMap {
   synthesisToken: (event: SynthesisTokenEvent) => void;
   synthesisComplete: (event: SynthesisCompleteEvent) => void;
   finalResult: (event: FinalResultEvent) => void;
+  toolCallStart: (event: ToolCallStartEvent) => void;
+  toolCallComplete: (event: ToolCallCompleteEvent) => void;
+  toolError: (event: ToolErrorEvent) => void;
   error: (error: Error) => void;
 }
 

@@ -34,6 +34,8 @@ import type {
   ConsensusOptions,
   ConsensusResult,
   Disagreement,
+  ModelCallRequest,
+  ModelCallResponse,
   ModelCaller,
   Participant,
   ParticipantResponse,
@@ -41,6 +43,12 @@ import type {
   RoundResult,
   StopReason,
   SynthesisResult,
+  ToolCall,
+  ToolCallContext,
+  ToolCallTurn,
+  ToolDefinition,
+  ToolExecutionResult,
+  ToolExecutor,
 } from "./types.js";
 
 // ── Defaults ───────────────────────────────────────────────
@@ -56,10 +64,13 @@ const DEFAULTS = {
   maxOutputTokens: 1500,
   judgeTemperature: 0.3,
   judgeMaxOutputTokens: 1500,
+  maxToolIterations: 8,
 } as const;
 
 const MAX_ROUNDS_CAP = 10;
 const MIN_PARTICIPANTS = 2;
+const MAX_TOOL_ITERATIONS_CAP = 32;
+const TOOL_RESULT_PREVIEW_CHARS = 200;
 
 // ── Public engine ──────────────────────────────────────────
 
@@ -123,6 +134,8 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
           temperature: opts.participantTemperature,
           maxOutputTokens: opts.maxOutputTokens,
           signal: opts.signal,
+          toolExecutor: opts.toolExecutor,
+          maxToolIterations: opts.maxToolIterations,
         });
 
         const roundCompletedAt = Date.now();
@@ -276,6 +289,8 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
     temperature: number;
     maxOutputTokens: number;
     signal: AbortSignal | undefined;
+    toolExecutor: ToolExecutor | undefined;
+    maxToolIterations: number;
   }): Promise<ParticipantResponse[]> {
     const {
       round,
@@ -288,6 +303,8 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
       temperature,
       maxOutputTokens,
       signal,
+      toolExecutor,
+      maxToolIterations,
     } = args;
 
     if (blind) {
@@ -303,6 +320,8 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
           maxOutputTokens,
           signal,
           runningConfidences: [],
+          toolExecutor,
+          maxToolIterations,
         }),
       );
       return Promise.all(promises);
@@ -312,9 +331,7 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
     for (const participant of order) {
       throwIfAborted(signal);
       const visible = [...previousResponses, ...collected];
-      const confidencesSoFar = collected
-        .filter((r) => !r.error)
-        .map((r) => r.confidence);
+      const confidencesSoFar = collected.filter((r) => !r.error).map((r) => r.confidence);
       const response = await this.#callParticipant({
         participant,
         round,
@@ -326,6 +343,8 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
         maxOutputTokens,
         signal,
         runningConfidences: confidencesSoFar,
+        toolExecutor,
+        maxToolIterations,
       });
       collected.push(response);
     }
@@ -345,6 +364,8 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
     maxOutputTokens: number;
     signal: AbortSignal | undefined;
     runningConfidences: readonly number[];
+    toolExecutor: ToolExecutor | undefined;
+    maxToolIterations: number;
   }): Promise<ParticipantResponse> {
     const {
       participant,
@@ -357,6 +378,8 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
       maxOutputTokens,
       signal,
       runningConfidences,
+      toolExecutor,
+      maxToolIterations,
     } = args;
 
     const system = buildParticipantSystemPrompt({
@@ -381,26 +404,20 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
     let usage: ParticipantResponse["usage"];
 
     try {
-      const result = await this.#caller({
-        participantId: participant.id,
-        modelId: participant.modelId,
+      const turn = await this.#runParticipantTurn({
+        participant,
         round,
         phase,
         system,
-        user: question,
+        question,
         temperature,
         maxOutputTokens,
         signal,
-        onToken: (token) => {
-          this.emit("participantToken", {
-            round,
-            participantId: participant.id,
-            token,
-          });
-        },
+        toolExecutor,
+        maxToolIterations,
       });
-      content = result.content;
-      usage = result.usage;
+      content = turn.content;
+      usage = turn.usage;
     } catch (err) {
       if (isAbortError(err)) throw err;
       error = err instanceof Error ? err.message : String(err);
@@ -438,6 +455,189 @@ export class ConsensusEngine extends TypedEventEmitter<ConsensusEventMap> {
     }
 
     return response;
+  }
+
+  // ── Participant turn (handles the tool-call loop) ────────
+
+  /**
+   * Runs a participant's turn end-to-end. When `toolExecutor` is provided
+   * AND the participant declares tools AND the model returns tool-call
+   * requests, the engine loops:
+   *   1. Dispatch each tool call to the executor.
+   *   2. Append the (calls, results) pair to `toolCallTurns`.
+   *   3. Re-invoke the caller with the accumulated history.
+   *   4. Repeat until the response carries no tool calls or `maxToolIterations`
+   *      is exceeded.
+   *
+   * Without an executor, this runs exactly one model call — preserving the
+   * 0.10 single-call behaviour byte-for-byte.
+   *
+   * Token usage from each iteration is summed; the final response's
+   * `content` is what becomes the participant's turn output.
+   */
+  async #runParticipantTurn(args: {
+    participant: Participant;
+    round: number;
+    phase: Phase;
+    system: string;
+    question: string;
+    temperature: number;
+    maxOutputTokens: number;
+    signal: AbortSignal | undefined;
+    toolExecutor: ToolExecutor | undefined;
+    maxToolIterations: number;
+  }): Promise<{ content: string; usage: ParticipantResponse["usage"] }> {
+    const {
+      participant,
+      round,
+      phase,
+      system,
+      question,
+      temperature,
+      maxOutputTokens,
+      signal,
+      toolExecutor,
+      maxToolIterations,
+    } = args;
+
+    const tools: readonly ToolDefinition[] | undefined =
+      participant.tools && participant.tools.length > 0 ? participant.tools : undefined;
+    const useToolLoop = Boolean(toolExecutor) && tools !== undefined;
+
+    const toolCallTurns: ToolCallTurn[] = [];
+    let mergedUsage: ParticipantResponse["usage"];
+    let lastResponse: ModelCallResponse | undefined;
+    let iter = 0;
+
+    while (true) {
+      const req: ModelCallRequest = {
+        participantId: participant.id,
+        modelId: participant.modelId,
+        round,
+        phase,
+        system,
+        user: question,
+        temperature,
+        maxOutputTokens,
+        signal,
+        onToken: (token) => {
+          this.emit("participantToken", {
+            round,
+            participantId: participant.id,
+            token,
+          });
+        },
+        ...(tools !== undefined ? { tools } : {}),
+        ...(toolCallTurns.length > 0
+          ? { toolCallTurns: toolCallTurns.map((t) => ({ ...t })) }
+          : {}),
+      };
+
+      lastResponse = await this.#caller(req);
+      mergedUsage = mergeUsage(mergedUsage, lastResponse.usage);
+
+      const calls: readonly ToolCall[] = lastResponse.toolCalls ?? [];
+      if (!useToolLoop || calls.length === 0) break;
+      if (iter >= maxToolIterations) break;
+      iter += 1;
+
+      const results = await this.#dispatchToolCalls({
+        participant,
+        round,
+        phase,
+        iteration: iter,
+        calls,
+        toolExecutor: toolExecutor!,
+        signal,
+      });
+      toolCallTurns.push({ toolCalls: calls, toolResults: results });
+    }
+
+    return {
+      content: lastResponse?.content ?? "",
+      usage: mergedUsage,
+    };
+  }
+
+  /**
+   * Dispatch the tool calls of a single iteration through the host executor.
+   * Errors thrown by the executor are caught and converted into
+   * `{ error: message }` results so the conversation can continue. Aborts
+   * propagate up so the engine's outer abort handling can finalise the run.
+   */
+  async #dispatchToolCalls(args: {
+    participant: Participant;
+    round: number;
+    phase: Phase;
+    iteration: number;
+    calls: readonly ToolCall[];
+    toolExecutor: ToolExecutor;
+    signal: AbortSignal | undefined;
+  }): Promise<ToolExecutionResult[]> {
+    const { participant, round, phase, iteration, calls, toolExecutor, signal } = args;
+    const ctx: ToolCallContext = {
+      participantId: participant.id,
+      round,
+      phase,
+      ...(signal ? { signal } : {}),
+    };
+    const results: ToolExecutionResult[] = [];
+
+    for (const call of calls) {
+      throwIfAborted(signal);
+      this.emit("toolCallStart", {
+        participantId: participant.id,
+        round,
+        phase,
+        iteration,
+        call,
+      });
+      const startedAt = Date.now();
+      let result: ToolExecutionResult;
+      try {
+        result = await toolExecutor(call, ctx);
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        result = { error: message };
+      }
+      results.push(result);
+
+      const ok = !("error" in result);
+      const previewSource = ok
+        ? "content" in result
+          ? result.content
+          : ""
+        : "error" in result
+          ? result.error
+          : "";
+      const preview = truncate(previewSource, TOOL_RESULT_PREVIEW_CHARS);
+      const durationMs = Date.now() - startedAt;
+
+      this.emit("toolCallComplete", {
+        participantId: participant.id,
+        round,
+        phase,
+        iteration,
+        call,
+        durationMs,
+        ok,
+        preview,
+      });
+      if (!ok) {
+        const error = "error" in result ? result.error : "unknown";
+        this.emit("toolError", {
+          participantId: participant.id,
+          round,
+          phase,
+          iteration,
+          call,
+          error,
+        });
+      }
+    }
+
+    return results;
   }
 
   // ── Judge synthesizer ────────────────────────────────────
@@ -541,6 +741,8 @@ interface NormalizedOptions {
   judge: ConsensusOptions["judge"];
   randomSeed: number | undefined;
   signal: AbortSignal | undefined;
+  toolExecutor: ToolExecutor | undefined;
+  maxToolIterations: number;
 }
 
 function normalizeOptions(options: ConsensusOptions): NormalizedOptions {
@@ -563,6 +765,11 @@ function normalizeOptions(options: ConsensusOptions): NormalizedOptions {
   }
 
   const maxRounds = clampInt(options.maxRounds ?? DEFAULTS.maxRounds, 1, MAX_ROUNDS_CAP);
+  const maxToolIterations = clampInt(
+    options.maxToolIterations ?? DEFAULTS.maxToolIterations,
+    1,
+    MAX_TOOL_ITERATIONS_CAP,
+  );
 
   return {
     question: options.question,
@@ -573,12 +780,13 @@ function normalizeOptions(options: ConsensusOptions): NormalizedOptions {
     disagreementThreshold: options.disagreementThreshold ?? DEFAULTS.disagreementThreshold,
     blindFirstRound: options.blindFirstRound ?? DEFAULTS.blindFirstRound,
     randomizeOrder: options.randomizeOrder ?? DEFAULTS.randomizeOrder,
-    participantTemperature:
-      options.participantTemperature ?? DEFAULTS.participantTemperature,
+    participantTemperature: options.participantTemperature ?? DEFAULTS.participantTemperature,
     maxOutputTokens: options.maxOutputTokens ?? DEFAULTS.maxOutputTokens,
     judge: options.judge,
     randomSeed: options.randomSeed,
     signal: options.signal,
+    toolExecutor: options.toolExecutor,
+    maxToolIterations,
   };
 }
 
@@ -596,10 +804,27 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 
 function isAbortError(err: unknown): boolean {
   return (
-    err instanceof DOMException && err.name === "AbortError"
-  ) || (
-    err instanceof Error && err.name === "AbortError"
+    (err instanceof DOMException && err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
   );
 }
 
-export { DEFAULTS as CONSENSUS_DEFAULTS, MAX_ROUNDS_CAP };
+function mergeUsage(
+  acc: ParticipantResponse["usage"],
+  next: ParticipantResponse["usage"],
+): ParticipantResponse["usage"] {
+  if (!next) return acc;
+  if (!acc) return next;
+  return {
+    inputTokens: acc.inputTokens + next.inputTokens,
+    outputTokens: acc.outputTokens + next.outputTokens,
+    totalTokens: acc.totalTokens + next.totalTokens,
+  };
+}
+
+function truncate(s: string, n: number): string {
+  if (typeof s !== "string") return "";
+  return s.length <= n ? s : `${s.slice(0, n)}…`;
+}
+
+export { DEFAULTS as CONSENSUS_DEFAULTS, MAX_ROUNDS_CAP, MAX_TOOL_ITERATIONS_CAP };
