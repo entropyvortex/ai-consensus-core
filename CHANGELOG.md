@@ -3,6 +3,22 @@
 All notable changes to `ai-consensus-core` will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] — 2026-05-25
+
+### Fixed — judge-confidence parser contract
+
+`buildJudgeSystemPrompt` now idempotently appends the `JUDGE_CONFIDENCE: [number 0-100]` directive, mirroring the `CONFIDENCE: [number 0-100]` handshake that `buildParticipantSystemPrompt` has always emitted. Previously, any caller that supplied a custom `ConsensusOptions.judge.systemPrompt` (instead of relying on `JUDGE_PERSONA.systemPrompt`, which has the directive inline) silently broke the parser contract: `extractJudgeConfidence` would not find the marker, fall through to its 50 default, and return a measurement-shaped value that polluted downstream statistics.
+
+Discovered by a 12-run benchmark in `ai-consensus-mcp` where judge confidence was reported as exactly `μ=50.0, σ=0.0` across every run — the unmistakable fingerprint of the silent default. Every panel in that repo overrode `judgeSystemPrompt` and none re-emitted the marker.
+
+- `buildJudgeSystemPrompt` auto-appends the directive when it is not already present in the supplied prompt
+- Idempotency check is case-insensitive substring on `JUDGE_CONFIDENCE`, so `JUDGE_PERSONA`'s inline directive (and any diligent custom caller) is not duplicated
+- New contract tests in `prompts.test.ts` mirror the existing participant-side test and fail loudly if a future edit breaks the handshake
+
+### Backward compatibility
+
+No public API change. The only observable difference is that `buildJudgeSystemPrompt`'s output string is longer when the input prompt lacks the marker. Callers that snapshot-test that output will need to regenerate snapshots. Callers that relied on the previous silent-50 behaviour will now see the real model-emitted value (which is the documented intent).
+
 ## [0.11.0] — 2026-04-30
 
 ### Added — tool calling
