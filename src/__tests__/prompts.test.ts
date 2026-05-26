@@ -193,6 +193,43 @@ describe("buildJudgeSystemPrompt", () => {
     });
     expect(out).toContain(JUDGE_PERSONA.systemPrompt);
   });
+
+  it("always ends with the JUDGE_CONFIDENCE marker directive (parser contract)", () => {
+    // This is the handshake between prompt and parser. If a custom
+    // judgeSystemPrompt lacks the directive, extractJudgeConfidence silently
+    // returns its 50 default — a measurement-shaped value that pollutes
+    // statistics rather than surfacing as missing data.
+    const out = buildJudgeSystemPrompt({
+      judgeSystemPrompt:
+        "You are synthesising a debate. Produce a report. State your confidence.",
+      question: "Q",
+    });
+    expect(out).toMatch(/JUDGE_CONFIDENCE: \[number 0-100\]\s*$/);
+  });
+
+  it("does not duplicate the directive when the input already mentions JUDGE_CONFIDENCE", () => {
+    // JUDGE_PERSONA.systemPrompt has its own inline JUDGE_CONFIDENCE
+    // directive. Diligent callers may add one too. In both cases the
+    // builder must be idempotent.
+    const out = buildJudgeSystemPrompt({
+      judgeSystemPrompt: JUDGE_PERSONA.systemPrompt,
+      question: "Q",
+    });
+    const matches = out.match(/JUDGE_CONFIDENCE/gi) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  it("appends the directive verbatim to a custom prompt that lacks it", () => {
+    const customPrompt = "You are the architecture judge. Pick one option.";
+    const out = buildJudgeSystemPrompt({
+      judgeSystemPrompt: customPrompt,
+      question: "Q",
+    });
+    expect(out).toContain(customPrompt);
+    expect(out).toContain(
+      "IMPORTANT: End your response with a line in exactly this format:\nJUDGE_CONFIDENCE: [number 0-100]",
+    );
+  });
 });
 
 describe("buildJudgeUserPrompt", () => {

@@ -101,20 +101,37 @@ CONFIDENCE: [number 0-100]`;
 }
 
 /**
+ * Trailing directive that pins the judge's output to the parser contract
+ * (`extractJudgeConfidence` looks for this exact token). Mirrors the
+ * `CONFIDENCE: [number 0-100]` handshake on the participant side.
+ */
+const JUDGE_CONFIDENCE_DIRECTIVE = `
+
+IMPORTANT: End your response with a line in exactly this format:
+JUDGE_CONFIDENCE: [number 0-100]`;
+
+/**
  * Build the judge's system prompt. We append the original user prompt to
  * the JUDGE_PERSONA's instructions so the model knows what was debated,
  * without having to infer it from participant text.
+ *
+ * Idempotently appends the `JUDGE_CONFIDENCE: [number 0-100]` directive so
+ * `parser.extractJudgeConfidence` always finds a real value to parse rather
+ * than silently returning its 50 default. If the caller's prompt already
+ * contains a `JUDGE_CONFIDENCE` mention (as `JUDGE_PERSONA.systemPrompt`
+ * does), the directive is not duplicated.
  */
 export function buildJudgeSystemPrompt(params: {
   judgeSystemPrompt: string;
   question: string;
 }): string {
-  return `${params.judgeSystemPrompt}
+  const base = `${params.judgeSystemPrompt}
 
 The original prompt that was debated was:
 """
 ${params.question}
 """`;
+  return /JUDGE_CONFIDENCE/i.test(base) ? base : `${base}${JUDGE_CONFIDENCE_DIRECTIVE}`;
 }
 
 /**
