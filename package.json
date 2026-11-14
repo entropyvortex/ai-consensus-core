@@ -1,6 +1,6 @@
 {
   "name": "ai-consensus-core",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "description": "Dependency-light TypeScript implementation of the Consensus Validation Protocol (CVP): multi-model debate with confidence-weighted scoring, disagreement detection, and optional judge synthesis.",
   "keywords": [
     "consensus",
@@ -54,7 +54,7 @@
     "prepublishOnly": "npm run clean && npm run build && npm run test"
   },
   "dependencies": {
-    "zod": "^3.24.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

@@ -3,6 +3,14 @@
 All notable changes to `ai-consensus-core` will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] — 2026-11-14
+
+### Changed — zod 4
+
+- `zod` dependency moved from `^3.24.1` to `^4.6.7`, which clears the high-severity zod advisory fixed in 4.6.6.
+- The exported schemas (`PersonaSchema`, `ParticipantSchema`, and the rest) are now zod 4 schemas. Callers that compose them with their own zod 3 schemas should upgrade to zod 4. Validation messages follow zod 4 wording.
+- README wording toned down to describe what the library does.
+
 ## [0.11.1] — 2026-05-25
 
 ### Fixed — judge-confidence parser contract
