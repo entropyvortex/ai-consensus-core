@@ -4,7 +4,7 @@
 (`JUDGE_PERSONA`). Debate personas are opinionated content, not mechanics —
 they belong to the caller, not the library.
 
-This document contains the seven debate personas from the battle-tested
+This document contains the seven debate personas from the
 Roundtable playbook as a copy-paste reference. Drop the block below into
 your codebase, edit the voices to match your domain, or replace them
 wholesale.

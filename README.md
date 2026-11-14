@@ -1,7 +1,7 @@
 # ai-consensus-core
 
 > Turn any set of AI models into a real roundtable.
-> Production-grade Consensus Validation Protocol (CVP) for TypeScript — zero LLM-provider coupling, highly observable, shipped as a clean npm package.
+> A TypeScript implementation of the Consensus Validation Protocol (CVP), with no LLM-provider coupling and a typed event stream, published on npm.
 
 [![npm](https://img.shields.io/npm/v/ai-consensus-core)](https://www.npmjs.com/package/ai-consensus-core)
 [![license](https://img.shields.io/npm/l/ai-consensus-core)](./LICENSE)
@@ -11,8 +11,8 @@ This is the engine that powers [Roundtable](https://github.com/entropyvortex/rou
 
 ## Why this exists
 
-Most "multi-agent" frameworks are toys.
-This one is built for real work.
+Many multi-agent frameworks are tied to one provider or one use case.
+This library implements only the protocol, so it slots into whatever stack you already run.
 
 You configure any number of models — Grok, Claude, Gemini, DeepSeek, whatever — give each a persona, and hand it a question. You get:
 
@@ -20,7 +20,7 @@ You configure any number of models — Grok, Claude, Gemini, DeepSeek, whatever 
 - **Confidence scoring + disagreement detection.** Deterministic, no extra LLM calls.
 - **Early stopping** when the group converges.
 - **Optional judge synthesis** — a non-voting model produces majority/minority/unresolved sections.
-- **Full observability.** Typed event stream fires on every round, every participant, every confidence shift, every disagreement.
+- **Observability.** A typed event stream fires on every round, every participant, every confidence shift, every disagreement.
 - **Zero provider coupling.** The library never imports a provider SDK. You plug in a `ModelCaller` once and use any backend.
 
 ## Install
@@ -488,11 +488,11 @@ npm run build       # emits ESM + .d.ts into dist/
 
 ## Philosophy
 
-Most multi-agent frameworks are toys. They hard-code a single provider, assume a single use case, or pile opinions on top of opinions until the engine is unshippable.
+Many multi-agent frameworks hard-code a single provider, assume a single use case, or layer opinions on top of the engine.
 
-This library is the opposite of that. It's the minimum viable mechanism for multi-model consensus — no provider SDK, no CLI, no server, no opinions beyond the protocol itself. You bring the models and the shell; we bring the engine.
+This library takes the other route. It's the minimum viable mechanism for multi-model consensus — no provider SDK, no CLI, no server, no opinions beyond the protocol itself. You bring the models and the shell; we bring the engine.
 
-If you care about serious multi-AI reasoning, persistent agent memory, and safe, powerful tooling — this is the foundation layer.
+It is the engine layer under Roundtable and `ai-consensus-mcp`.
 
 ## See also
 
