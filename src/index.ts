@@ -26,6 +26,7 @@ export {
   stripConfidenceLine,
 } from "./parser.js";
 
+/** @deprecated Use extractConfidence (same semantics since 0.13). */
 export { extractTrailingConfidence } from "./parser.js";
 
 export {

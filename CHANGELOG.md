@@ -22,11 +22,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 - `extractClaims`, `parseClaimsJSON`, `buildClaimExtractorUserPrompt`, `CLAIM_EXTRACTOR_SYSTEM_PROMPT`, and the `ClaimContradiction` / `ClaimDigest` types (prompt, parser and fuzzy quote check unchanged)
 - `CostCapExceededError`, `assertWithinCostCap` and the `CostCap` type
-- `extractTrailingConfidence`: last `CONFIDENCE: N` marker followed by digits (Roundtable's parsing semantics)
+- `extractTrailingConfidence`: deprecated alias of `extractConfidence` (same semantics, see below), kept for callers written against the pre-release
+
+### Changed — `extractConfidence` reads the trailing marker
+
+`extractConfidence` now returns the value of the **last** `confidence:` marker followed by digits, instead of the first marker. A marker without digits (e.g. "Confidence: high") is skipped rather than returning 50. The protocol asks for the score on the final line; before, an inline mention or a previewed score earlier in a response captured it, and "Confidence: high … CONFIDENCE: 80" scored 50. These are the semantics Roundtable always used.
+
+This changes `ConsensusEngine.run()` scores for responses that mention "confidence:" before their trailing line; responses with a single trailing marker score exactly as before. The default (50 when no marker has digits) and clamping are unchanged.
 
 ### Backward compatibility
 
-Additive only. Every 0.12 export is still exported with identical runtime source, and the `.d.ts` files for the engine, prompts, stats, events and personas are byte-identical; `types.d.ts`, `parser.d.ts` and `index.d.ts` only gain declarations. `ConsensusEngine.run()`, `extractConfidence` and every existing type are unchanged. No new runtime dependencies. Tests: 145 existing (unmodified) + 113 new = 258.
+Apart from the `extractConfidence` change above, additive only. Every other 0.12 export keeps identical runtime source, and the `.d.ts` files for the engine, prompts, stats, events and personas are byte-identical; `types.d.ts`, `parser.d.ts` and `index.d.ts` only gain declarations or doc text. No existing signature or type changed. No new runtime dependencies. Tests: 145 existing (one inverted for the parser change) + 116 new = 261.
 
 ## [0.12.0] — 2026-11-14
 
