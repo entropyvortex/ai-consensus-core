@@ -96,3 +96,30 @@ export function extractJudgeSection(text: string, heading: string): string {
 export function stripConfidenceLine(text: string): string {
   return text.replace(/\nCONFIDENCE:\s*\d+\s*$/i, "").trim();
 }
+
+/**
+ * Extract the LAST `CONFIDENCE: N` marker that is followed by digits.
+ * Clamps to [0, 100]; defaults to 50 when no such marker exists.
+ *
+ * Unlike {@link extractConfidence} (first marker, any value), earlier
+ * inline mentions such as "Confidence: high" or a previewed score cannot
+ * capture the value: the trailing line the protocol asks for wins. Same
+ * semantics as Roundtable's `/CONFIDENCE:\s*(\d+)/gi` last-match parser
+ * (case-insensitive, so `JUDGE_CONFIDENCE: N` also matches), implemented
+ * as a linear scan.
+ */
+export function extractTrailingConfidence(text: string): number {
+  const lower = text.toLowerCase();
+  const prefix = "confidence:";
+  let last: number | undefined;
+  let idx = lower.indexOf(prefix);
+  while (idx !== -1) {
+    let i = idx + prefix.length;
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    const start = i;
+    while (i < text.length && isDigit(text[i]!)) i++;
+    if (i > start) last = Number.parseInt(text.slice(start, i), 10);
+    idx = lower.indexOf(prefix, idx + prefix.length);
+  }
+  return last === undefined ? 50 : clampConfidence(last);
+}
