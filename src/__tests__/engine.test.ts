@@ -988,3 +988,23 @@ describe("ConsensusEngine — deterministic replay", () => {
     expect(unique.size).toBeGreaterThan(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// Confidence parsing in run() (0.13: last marker wins)
+// ─────────────────────────────────────────────────────────────
+
+describe("ConsensusEngine — confidence comes from the trailing marker", () => {
+  it("ignores an earlier inline 'Confidence:' mention and an earlier preview", async () => {
+    const caller: ModelCaller = async (req) => ({
+      content:
+        req.participantId === "p1"
+          ? "Confidence: high that this is right.\nMore reasoning.\nCONFIDENCE: 82"
+          : "I would say CONFIDENCE: 40 at first, but on reflection\nCONFIDENCE: 64",
+    });
+    const result = await new ConsensusEngine(caller).run(
+      baseOptions({ participants: [P("p1", 0), P("p2", 1)], maxRounds: 1 }),
+    );
+    const byId = Object.fromEntries(result.rounds[0]!.responses.map((r) => [r.participantId, r.confidence]));
+    expect(byId).toEqual({ p1: 82, p2: 64 });
+  });
+});

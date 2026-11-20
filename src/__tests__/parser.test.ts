@@ -31,11 +31,16 @@ describe("extractConfidence", () => {
     expect(extractConfidence("CoNfIdEnCe: 75")).toBe(75);
   });
 
-  it("matches the first occurrence when several are present", () => {
-    // The roundtable reference uses a non-global regex, so the first match
-    // wins. We preserve that ordering — later confidences are treated as
-    // commentary, not overrides.
-    expect(extractConfidence("CONFIDENCE: 30\nmore\nCONFIDENCE: 90")).toBe(30);
+  it("takes the last marker when several are present (since 0.13)", () => {
+    // The protocol puts the score on the final line; an earlier preview or
+    // an inline mention must not capture it. Matches Roundtable's
+    // last-match parser.
+    expect(extractConfidence("CONFIDENCE: 30\nmore\nCONFIDENCE: 90")).toBe(90);
+  });
+
+  it("skips markers without digits instead of returning 50 (since 0.13)", () => {
+    expect(extractConfidence("Confidence: high in the approach.\n\nCONFIDENCE: 72")).toBe(72);
+    expect(extractConfidence("CONFIDENCE: 72\nconfidence: unclear")).toBe(72);
   });
 
   it("clamps values above 100", () => {

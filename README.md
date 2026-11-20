@@ -195,7 +195,7 @@ console.log(result.synthesis?.majorityPosition);
 
 - **Round 1 is blind by default.** Participants run in parallel, see no one else. Flip `blindFirstRound: false` to go sequential (rare — mostly for deterministic replay).
 - **Rounds 2+ are sequential.** Speaking order is randomized unless `randomizeOrder: false`. Each speaker sees everyone who came before them — including earlier speakers in the current round.
-- **Every response must end with `CONFIDENCE: N`** where N is an integer 0–100. Missing marker → 50 (neutral).
+- **Every response must end with `CONFIDENCE: N`** where N is an integer 0–100. If several markers appear, the last one with a number wins (an inline "Confidence: high" is ignored). Missing marker → 50 (neutral).
 - **Consensus score** = `round(clamp(μ − 0.5·σ, 0, 100))` using population stddev.
 - **Disagreement detected** when two participants' confidences differ by ≥ 20 (tunable).
 - **Early stop** when `|score_k − score_{k−1}| ≤ 3` (tunable). Only checked from round 2 onward.
@@ -504,7 +504,7 @@ digest.contradictions; // [{ claim, sides: [{ stance, participantIds, quote }] }
 assertWithinCostCap(runningCostUSD, capUSD); // throws CostCapExceededError above the cap
 ```
 
-`extractClaims` makes one call and soft-fails (an error or unparseable output yields an empty digest with `error` set); aborts propagate. `extractTrailingConfidence` parses the last `CONFIDENCE: N` marker followed by digits, for hosts that want trailing-line semantics; `extractConfidence` and `ConsensusEngine.run()` are unchanged.
+`extractClaims` makes one call and soft-fails (an error or unparseable output yields an empty digest with `error` set); aborts propagate.
 
 ## Types
 
@@ -550,7 +550,7 @@ ParticipantSchema.parse(untrustedInput);
 git clone https://github.com/entropyvortex/ai-consensus-core.git
 cd ai-consensus-core
 npm install
-npm run test        # 258 tests, vitest
+npm run test        # 260 tests, vitest
 npm run test:coverage
 npm run build       # emits ESM + .d.ts into dist/
 ```

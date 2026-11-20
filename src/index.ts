@@ -26,8 +26,6 @@ export {
   stripConfidenceLine,
 } from "./parser.js";
 
-export { extractTrailingConfidence } from "./parser.js";
-
 export {
   average,
   stddev,
