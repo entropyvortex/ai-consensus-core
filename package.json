@@ -1,7 +1,7 @@
 {
   "name": "ai-consensus-core",
-  "version": "0.12.0",
-  "description": "Dependency-light TypeScript implementation of the Consensus Validation Protocol (CVP): multi-model debate with confidence-weighted scoring, disagreement detection, and optional judge synthesis.",
+  "version": "0.13.0",
+  "description": "Dependency-light TypeScript implementation of the Consensus Validation Protocol (CVP): multi-model debate with confidence-weighted scoring, disagreement detection, optional judge synthesis, and blind adjudication of candidate solutions.",
   "keywords": [
     "consensus",
     "cvp",

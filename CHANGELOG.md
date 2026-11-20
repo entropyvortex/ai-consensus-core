@@ -3,6 +3,31 @@
 All notable changes to `ai-consensus-core` will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] — 2026-11-20
+
+### Added — attempt adjudication
+
+`AdjudicationEngine` judges N candidate solutions to the same task (e.g. best-of-N branches): one blind parallel round of jurors, deterministic aggregation, a rebuttal round only when agreement is below threshold, then the existing non-voting judge. See README "Attempt adjudication".
+
+- `AdjudicationEngine` (sibling of `ConsensusEngine`, same `ModelCaller`, its own typed event map) with `adjudicate(options)`
+- Blinding: per-juror shuffled neutral labels drawn from `randomSeed`; candidate ids never reach a model
+- Strict juror contract (`parseJurorVerdict`, `buildJurorVerdictJsonSchema`): malformed output is an abstention
+- Quote verification with dropped counts (`verifyFindings`, `quoteAppearsIn`, `mergeFindings`, `normalizeQuote`, `stripDiffMarkers`)
+- Aggregation (`bordaCount`, `kendallW`, `rankCandidates`, `decideVerdict`, `computeDissent`, `findingWeights`); failed-check eligibility rule; a Borda tie at the top is "no clear winner"
+- Budget: `budget.maxTokens`, `budget.deadlineMs`, `budget.costCap` next to `signal`; breaches return a partial result with `stopReason` `token-budget` / `deadline` / `cost-cap` / `aborted`
+- Prompt builders: `buildJurorSystemPrompt`, `buildJurorUserPrompt`, `buildAdjudicationJudgeUserPrompt`
+- Schemas and constants: `CandidateCheckSchema`, `AdjudicationCandidateSchema`, `CHECK_STATUSES`, `FINDING_SEVERITIES`, `CANDIDATE_LABELS`, `SEVERITY_WEIGHT`, `DEFAULT_MIN_QUOTE_LENGTH`, `ADJUDICATION_DEFAULTS`, `MAX_ADJUDICATION_ROUNDS`, `MAX_ADJUDICATION_CANDIDATES`
+
+### Added — ported from Roundtable
+
+- `extractClaims`, `parseClaimsJSON`, `buildClaimExtractorUserPrompt`, `CLAIM_EXTRACTOR_SYSTEM_PROMPT`, and the `ClaimContradiction` / `ClaimDigest` types (prompt, parser and fuzzy quote check unchanged)
+- `CostCapExceededError`, `assertWithinCostCap` and the `CostCap` type
+- `extractTrailingConfidence`: last `CONFIDENCE: N` marker followed by digits (Roundtable's parsing semantics)
+
+### Backward compatibility
+
+Additive only. Every 0.12 export is still exported with identical runtime source, and the `.d.ts` files for the engine, prompts, stats, events and personas are byte-identical; `types.d.ts`, `parser.d.ts` and `index.d.ts` only gain declarations. `ConsensusEngine.run()`, `extractConfidence` and every existing type are unchanged. No new runtime dependencies. Tests: 145 existing (unmodified) + 113 new = 258.
+
 ## [0.12.0] — 2026-11-14
 
 ### Changed — zod 4

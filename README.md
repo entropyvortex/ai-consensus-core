@@ -20,6 +20,7 @@ You configure any number of models — Grok, Claude, Gemini, DeepSeek, whatever 
 - **Confidence scoring + disagreement detection.** Deterministic, no extra LLM calls.
 - **Early stopping** when the group converges.
 - **Optional judge synthesis** — a non-voting model produces majority/minority/unresolved sections.
+- **Attempt adjudication** — blind jurors rank N candidate solutions to one task; Borda + Kendall's W decide, quotes are verified against the candidates.
 - **Observability.** A typed event stream fires on every round, every participant, every confidence shift, every disagreement.
 - **Zero provider coupling.** The library never imports a provider SDK. You plug in a `ModelCaller` once and use any backend.
 
@@ -430,6 +431,81 @@ Pass `randomSeed` to make round-order shuffling reproducible. Combined with a de
 await engine.run({ ...options, randomSeed: 42 });
 ```
 
+## Attempt adjudication
+
+`AdjudicationEngine` judges N candidate solutions to one coding task — for example the branches of a best-of-N run. The CVP debate is the wrong tool here: its score is self-reported confidence, which says nothing about which diff is correct, and several sequential rounds are too slow for the end of every run.
+
+```ts
+import { AdjudicationEngine } from "ai-consensus-core";
+
+const engine = new AdjudicationEngine(caller); // the same ModelCaller as ConsensusEngine
+
+const result = await engine.adjudicate({
+  task: "Add retry with jitter to the HTTP client",
+  candidates: [
+    { id: "attempt-1", content: diff1, checks: [{ name: "tests", status: "passed" }] },
+    { id: "attempt-2", content: diff2, checks: [{ name: "tests", status: "failed", output: "2 failing" }] },
+    { id: "attempt-3", content: diff3 },
+  ],
+  jurors: [reviewerA, reviewerB, reviewerC], // Participant[], at least two
+  judge: { modelId: "claude-opus-4-5" },     // optional, never votes
+  randomSeed: 42,
+  budget: { maxTokens: 400_000, deadlineMs: 120_000 },
+});
+
+result.verdict;     // "winner" | "no-clear-winner"
+result.recommended; // "attempt-1" | null
+```
+
+**Shape.** One blind, parallel round of jurors; deterministic aggregation; a rebuttal round only while agreement is below the threshold (`maxRounds`, default 2, max 3); then the existing non-voting judge, whose output keeps the `## Majority Position` / `## Minority Positions` / `## Unresolved Disputes` sections.
+
+**Blinding.** Each juror sees the candidates under neutral labels `A, B, C…` in its own shuffled order (drawn from `randomSeed` before any call). Candidate ids never reach a model — not the jurors, not the judge. Labels are mapped back to ids after parsing.
+
+**Juror contract.** One JSON object: a full `ranking` (every label once, best first), `assessments` (one short summary per candidate) and `findings` (`candidate`, `severity` high|medium|low, `file`, `line` integer or null, a verbatim `quote`, `issue`). The output must be the JSON object alone, or a single fenced `json` block. Anything else — prose around it, a partial ranking, an unknown label, a mistyped field — is an **abstention**, never a crash. `buildJurorVerdictJsonSchema(labels)` returns the matching JSON Schema in strict structured-output form (all properties required, no additional properties) for callers that can enforce it.
+
+**Verification.** A finding is kept only if its quote appears in the content of the candidate it names, after whitespace normalization, either verbatim or with the leading `+`/`-`/space diff markers removed. Quotes shorter than 8 characters (`minQuoteLength`) never verify. Dropped findings are counted per candidate and in total. No extra model calls.
+
+**Aggregation.** Borda count over the jurors' latest valid rankings; Kendall's W for agreement; ties in points are broken by first-place votes, then fewer severity-weighted verified findings, then candidate id. A candidate with a `failed` check is ineligible for recommendation unless every candidate failed one.
+
+**Verdict.** The leader (best eligible candidate) is recommended only when every juror returned a first-round verdict, at least two votes counted, W ≥ `agreementThreshold` (default 0.3) **and** the leader has strictly more Borda points than the next eligible candidate. Otherwise `verdict` is `"no-clear-winner"` with `noClearWinnerReason` = `incomplete` | `insufficient-votes` | `low-agreement` | `tie`. Dissent lists the jurors whose top pick differs from the leader.
+
+W measures agreement on the whole ordering, not on the winner, so it behaves differently by panel shape. One dissenting juror against an otherwise unanimous panel gives:
+
+| candidates | jurors | dissenter swaps the top two | dissenter picks another winner | dissenter reverses the order |
+| ---------- | ------ | --------------------------- | ------------------------------ | ---------------------------- |
+| 2          | 3      | 0.11                        | 0.11                           | 0.11                         |
+| 2          | 5      | 0.36                        | 0.36                           | 0.36                         |
+| 3          | 3      | 0.78                        | 0.33                           | 0.11                         |
+| 4          | 3      | 0.91                        | 0.47                           | 0.11                         |
+| 6          | 3      | 0.97                        | 0.62                           | 0.11                         |
+
+With the default threshold, two candidates need a unanimous panel of 3 (or 4 of 5); with three or more candidates and at least three jurors, a single dissenter who still ranks the leader second passes. A 1–1 split on the winner can produce a high W (two jurors, four candidates, top two swapped: 0.90), which is why a points tie at the top is reported as `tie` regardless of W.
+
+**Budget.** `budget.maxTokens` (reported usage, else a chars/4 estimate), `budget.deadlineMs` (wall clock from the start) and `budget.costCap` (`{ limitUSD, estimateUSD(modelId, usage) }`) work alongside `signal`. Before each round and before the judge, the engine refuses to dispatch calls whose worst case (input estimate + full `maxOutputTokens`) would cross a ceiling; after each call it checks actual usage and cancels in-flight calls on a breach. Calls that ignore their signal are abandoned at the deadline. The run then resolves with a partial result and `stopReason` = `deadline` | `token-budget` | `cost-cap` | `aborted` (finished verdicts are kept; unfinished ones are `cancelled`).
+
+**Events.** `roundStart`, `jurorStart`, `jurorToken`, `jurorComplete`, `roundComplete`, `rebuttalTriggered`, `synthesisStart` / `synthesisToken` / `synthesisComplete`, `budgetStop`, `finalResult`.
+
+The pieces are exported on their own: `bordaCount`, `kendallW`, `rankCandidates`, `decideVerdict`, `computeDissent`, `verifyFindings`, `quoteAppearsIn`, `mergeFindings`, `parseJurorVerdict`, the juror prompt builders and `buildAdjudicationJudgeUserPrompt`.
+
+## Claim extraction and cost cap
+
+Ported from Roundtable so hosts share one implementation:
+
+```ts
+import { extractClaims, assertWithinCostCap, CostCapExceededError } from "ai-consensus-core";
+
+const digest = await extractClaims(caller, {
+  modelId: "claude-opus-4-5",
+  finalResponses: result.rounds.at(-1)!.responses,
+  participants: result.participants,
+});
+digest.contradictions; // [{ claim, sides: [{ stance, participantIds, quote }] }]
+
+assertWithinCostCap(runningCostUSD, capUSD); // throws CostCapExceededError above the cap
+```
+
+`extractClaims` makes one call and soft-fails (an error or unparseable output yields an empty digest with `error` set); aborts propagate. `extractTrailingConfidence` parses the last `CONFIDENCE: N` marker followed by digits, for hosts that want trailing-line semantics; `extractConfidence` and `ConsensusEngine.run()` are unchanged.
+
 ## Types
 
 Everything is exported from the root:
@@ -474,7 +550,7 @@ ParticipantSchema.parse(untrustedInput);
 git clone https://github.com/entropyvortex/ai-consensus-core.git
 cd ai-consensus-core
 npm install
-npm run test        # 136 tests, vitest
+npm run test        # 258 tests, vitest
 npm run test:coverage
 npm run build       # emits ESM + .d.ts into dist/
 ```

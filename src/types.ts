@@ -506,3 +506,310 @@ export interface ConsensusEventMap {
 }
 
 export type ConsensusEventName = keyof ConsensusEventMap;
+
+// ─────────────────────────────────────────────────────────────
+// Cost cap (shared by AdjudicationEngine and standalone callers)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Caller-priced spending cap. The library has no price table: `estimateUSD`
+ * turns one call's usage into an estimated USD cost, and the running total
+ * is compared against `limitUSD`.
+ */
+export interface CostCap {
+  /** Hard ceiling in USD. Must be > 0. */
+  limitUSD: number;
+  /** Estimated USD cost of a single call. */
+  estimateUSD: (modelId: string, usage: TokenUsage) => number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Claim-level contradiction extraction
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * One claim-level contradiction extracted from a completed run. Unlike
+ * the confidence-spread `Disagreement`, a claim is a semantic
+ * contradiction extracted from the response text.
+ */
+export interface ClaimContradiction {
+  id: string;
+  /** One-line summary of what the contradiction is about. */
+  claim: string;
+  /** Each side lists the participants that took it and a verbatim quote. */
+  sides: Array<{
+    stance: string;
+    participantIds: string[];
+    quote: string;
+  }>;
+}
+
+/** Result of the claim-extraction pass. */
+export interface ClaimDigest {
+  modelId: string;
+  contradictions: ClaimContradiction[];
+  /** Raw model output, kept for transparency / fallback rendering. */
+  rawContent: string;
+  /** Set when the extractor call failed (the digest is then empty). */
+  error?: string;
+  usage?: TokenUsage;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Attempt adjudication
+// ─────────────────────────────────────────────────────────────
+// Judges N candidate solutions to one task: one blind parallel round of
+// jurors, deterministic aggregation (Borda + Kendall's W), an optional
+// rebuttal round when agreement is low, then the non-voting judge.
+
+export const CHECK_STATUSES = ["passed", "failed", "unknown"] as const;
+export type CheckStatus = (typeof CHECK_STATUSES)[number];
+
+/** Evidence the caller attaches to a candidate (build, tests, lint…). */
+export const CandidateCheckSchema = z.object({
+  name: z.string().min(1),
+  status: z.enum(CHECK_STATUSES),
+  /** Optional excerpt of the check's output, shown to jurors verbatim. */
+  output: z.string().optional(),
+});
+
+export type CandidateCheck = z.infer<typeof CandidateCheckSchema>;
+
+export const AdjudicationCandidateSchema = z.object({
+  /** Caller's stable id (e.g. a git ref). Never shown to any model. */
+  id: z.string().min(1),
+  /** The candidate solution, e.g. a unified diff. Shown under a neutral label. */
+  content: z.string(),
+  checks: z.array(CandidateCheckSchema).optional(),
+});
+
+export type AdjudicationCandidate = z.infer<typeof AdjudicationCandidateSchema>;
+
+export const FINDING_SEVERITIES = ["high", "medium", "low"] as const;
+export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
+
+/** A juror finding after label mapping (candidate ids, not juror labels). */
+export interface AdjudicationFinding {
+  candidateId: string;
+  severity: FindingSeverity;
+  file: string;
+  /** 1-based line, or null when the juror could not tell. Not verified. */
+  line: number | null;
+  /** Verbatim snippet the juror quoted from the candidate. */
+  quote: string;
+  issue: string;
+}
+
+/** A verified finding, deduplicated across jurors and rounds. */
+export interface VerifiedFinding extends AdjudicationFinding {
+  /** Juror ids that reported this quote for this candidate and file. */
+  reportedBy: string[];
+}
+
+export type JurorVerdictStatus = "valid" | "abstained" | "cancelled";
+
+export interface JurorVerdict {
+  jurorId: string;
+  modelId: string;
+  round: number;
+  status: JurorVerdictStatus;
+  /** Candidate ids, best first. Empty unless `status === "valid"`. */
+  ranking: string[];
+  /** What this juror saw: label → candidate id, in presentation order. */
+  presentation: Array<{ label: string; candidateId: string }>;
+  /** Findings whose quote was found in the named candidate's content. */
+  verifiedFindings: AdjudicationFinding[];
+  /** Findings dropped because the quote was not found (or too short). */
+  droppedFindings: AdjudicationFinding[];
+  /** One short assessment per candidate the juror chose to summarise. */
+  assessments: Array<{ candidateId: string; summary: string }>;
+  /** Why the verdict was not counted (malformed output, caller error, …). */
+  abstainReason?: string;
+  /** Raw model output (empty when the call failed before any content). */
+  raw: string;
+  usage?: TokenUsage;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+}
+
+export interface RankedCandidate {
+  candidateId: string;
+  /** Canonical neutral label (input order A, B, C…). */
+  label: string;
+  /** 1-based position in the aggregate ranking. */
+  rank: number;
+  /** Borda points: n-1 for a first place, 0 for a last place, summed over votes. */
+  points: number;
+  firstPlaceVotes: number;
+  /** Severity-weighted count of verified findings (high 3, medium 2, low 1). */
+  findingWeight: number;
+  /** Names of checks with status "failed". */
+  failedChecks: string[];
+  /** False when this candidate failed a check and at least one candidate did not. */
+  eligible: boolean;
+}
+
+export interface AdjudicationAgreement {
+  /** Kendall's W over counted votes, or null with fewer than 2 votes. */
+  kendallW: number | null;
+  threshold: number;
+  /** Number of jurors whose latest verdict was valid. */
+  votes: number;
+}
+
+export type NoClearWinnerReason = "insufficient-votes" | "low-agreement" | "tie" | "incomplete";
+
+export type AdjudicationStopReason = "completed" | "aborted" | "deadline" | "token-budget" | "cost-cap";
+
+export interface AdjudicationRound {
+  round: number;
+  kind: "blind" | "rebuttal";
+  verdicts: JurorVerdict[];
+  agreement: AdjudicationAgreement;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+}
+
+export interface AdjudicationUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** Model calls that returned (successfully or not). */
+  calls: number;
+  /** Calls whose caller reported no usage; their tokens are chars/4 estimates. */
+  estimatedCalls: number;
+  /** Running USD estimate; present only when a cost cap was configured. */
+  costUSD?: number;
+}
+
+export interface AdjudicationResult {
+  task: string;
+  candidates: Array<{ id: string; label: string; checks: CandidateCheck[] }>;
+  verdict: "winner" | "no-clear-winner";
+  /** Candidate id of the recommended candidate, or null. */
+  recommended: string | null;
+  /** Top eligible candidate in the aggregate ranking, recommended or not. */
+  leader: string | null;
+  noClearWinnerReason?: NoClearWinnerReason;
+  ranking: RankedCandidate[];
+  agreement: AdjudicationAgreement;
+  /** Verified findings per candidate, in canonical candidate order. */
+  findings: Array<{
+    candidateId: string;
+    label: string;
+    verified: VerifiedFinding[];
+    dropped: number;
+  }>;
+  /** Total findings dropped by quote verification, across all verdicts. */
+  droppedFindings: number;
+  /** Jurors whose top pick differs from `leader`. */
+  dissent: Array<{ jurorId: string; topPick: string }>;
+  rounds: AdjudicationRound[];
+  synthesis?: SynthesisResult;
+  usage: AdjudicationUsage;
+  stopReason: AdjudicationStopReason;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+}
+
+export interface AdjudicationBudget {
+  /** Token ceiling across every call (reported usage, else chars/4 estimate). */
+  maxTokens?: number;
+  /** Wall-clock deadline in ms from the start of `adjudicate()`. */
+  deadlineMs?: number;
+  /** USD cost cap, priced by the caller. */
+  costCap?: CostCap;
+}
+
+export interface AdjudicationOptions {
+  /** The task every candidate attempted. Required, non-empty. */
+  task: string;
+  /** 2 to 26 candidates. Ids must be unique. */
+  candidates: AdjudicationCandidate[];
+  /** At least two jurors. Ids must be unique and must not be "judge". */
+  jurors: Participant[];
+  /** 1 = blind round only; 2+ allows rebuttal rounds on low agreement. Default 2, max 3. */
+  maxRounds?: number;
+  /** Kendall's W at or above which a leader may be recommended. Default 0.3. */
+  agreementThreshold?: number;
+  /** Juror sampling temperature. Default 0.2. */
+  jurorTemperature?: number;
+  /** Max output tokens per juror call. Default 2000. */
+  maxOutputTokens?: number;
+  /** Minimum normalized quote length for a finding to count as verified. Default 8. */
+  minQuoteLength?: number;
+  /** Optional judge synthesis over the jurors' verdicts (never votes). */
+  judge?: ConsensusOptions["judge"];
+  /** Seeds the per-juror candidate order for deterministic replay. */
+  randomSeed?: number;
+  signal?: AbortSignal;
+  budget?: AdjudicationBudget;
+}
+
+// ── Adjudication events ─────────────────────────────────────
+
+export interface AdjudicationRoundStartEvent {
+  round: number;
+  kind: "blind" | "rebuttal";
+  jurorIds: string[];
+}
+
+export interface JurorStartEvent {
+  round: number;
+  jurorId: string;
+  modelId: string;
+}
+
+export interface JurorTokenEvent {
+  round: number;
+  jurorId: string;
+  token: string;
+}
+
+export interface JurorCompleteEvent {
+  round: number;
+  verdict: JurorVerdict;
+}
+
+export interface AdjudicationRoundCompleteEvent {
+  round: number;
+  agreement: AdjudicationAgreement;
+  ranking: RankedCandidate[];
+  durationMs: number;
+}
+
+export interface RebuttalTriggeredEvent {
+  /** The rebuttal round that is about to start. */
+  round: number;
+  kendallW: number;
+  threshold: number;
+}
+
+export interface BudgetStopEvent {
+  reason: Exclude<AdjudicationStopReason, "completed" | "aborted">;
+  usage: AdjudicationUsage;
+}
+
+export interface AdjudicationFinalEvent {
+  result: AdjudicationResult;
+}
+
+export interface AdjudicationEventMap {
+  roundStart: (event: AdjudicationRoundStartEvent) => void;
+  jurorStart: (event: JurorStartEvent) => void;
+  jurorToken: (event: JurorTokenEvent) => void;
+  jurorComplete: (event: JurorCompleteEvent) => void;
+  roundComplete: (event: AdjudicationRoundCompleteEvent) => void;
+  rebuttalTriggered: (event: RebuttalTriggeredEvent) => void;
+  synthesisStart: (event: SynthesisStartEvent) => void;
+  synthesisToken: (event: SynthesisTokenEvent) => void;
+  synthesisComplete: (event: SynthesisCompleteEvent) => void;
+  budgetStop: (event: BudgetStopEvent) => void;
+  finalResult: (event: AdjudicationFinalEvent) => void;
+  error: (error: Error) => void;
+}
+
+export type AdjudicationEventName = keyof AdjudicationEventMap;

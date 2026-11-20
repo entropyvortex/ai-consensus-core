@@ -26,6 +26,8 @@ export {
   stripConfidenceLine,
 } from "./parser.js";
 
+export { extractTrailingConfidence } from "./parser.js";
+
 export {
   average,
   stddev,
@@ -83,3 +85,95 @@ export type {
   ToolCallCompleteEvent,
   ToolErrorEvent,
 } from "./types.js";
+
+// ── Attempt adjudication (0.13) ─────────────────────────────
+
+export {
+  AdjudicationEngine,
+  ADJUDICATION_DEFAULTS,
+  MAX_ADJUDICATION_ROUNDS,
+  MAX_ADJUDICATION_CANDIDATES,
+  buildAdjudicationJudgeUserPrompt,
+} from "./adjudication.js";
+
+export {
+  CANDIDATE_LABELS,
+  SEVERITY_WEIGHT,
+  bordaCount,
+  kendallW,
+  findingWeights,
+  rankCandidates,
+  decideVerdict,
+  computeDissent,
+} from "./aggregation.js";
+export type { VerdictDecision } from "./aggregation.js";
+
+export {
+  DEFAULT_MIN_QUOTE_LENGTH,
+  normalizeQuote,
+  stripDiffMarkers,
+  quoteAppearsIn,
+  verifyFindings,
+  mergeFindings,
+} from "./verification.js";
+
+export {
+  buildJurorSystemPrompt,
+  buildJurorUserPrompt,
+  buildJurorVerdictJsonSchema,
+  parseJurorVerdict,
+} from "./juror.js";
+export type {
+  ParsedJurorVerdict,
+  JurorParseResult,
+  PresentedCandidate,
+  VerdictForRebuttal,
+} from "./juror.js";
+
+export {
+  CandidateCheckSchema,
+  AdjudicationCandidateSchema,
+  CHECK_STATUSES,
+  FINDING_SEVERITIES,
+} from "./types.js";
+
+export type {
+  CheckStatus,
+  CandidateCheck,
+  AdjudicationCandidate,
+  FindingSeverity,
+  AdjudicationFinding,
+  VerifiedFinding,
+  JurorVerdictStatus,
+  JurorVerdict,
+  RankedCandidate,
+  AdjudicationAgreement,
+  NoClearWinnerReason,
+  AdjudicationStopReason,
+  AdjudicationRound,
+  AdjudicationUsage,
+  AdjudicationResult,
+  AdjudicationBudget,
+  AdjudicationOptions,
+  AdjudicationEventMap,
+  AdjudicationEventName,
+  AdjudicationRoundStartEvent,
+  JurorStartEvent,
+  JurorTokenEvent,
+  JurorCompleteEvent,
+  AdjudicationRoundCompleteEvent,
+  RebuttalTriggeredEvent,
+  BudgetStopEvent,
+  AdjudicationFinalEvent,
+} from "./types.js";
+
+// ── Claim extraction and cost cap (ported from Roundtable, 0.13) ──
+
+export {
+  CLAIM_EXTRACTOR_SYSTEM_PROMPT,
+  buildClaimExtractorUserPrompt,
+  parseClaimsJSON,
+  extractClaims,
+} from "./claims.js";
+export { CostCapExceededError, assertWithinCostCap } from "./budget.js";
+export type { ClaimContradiction, ClaimDigest, CostCap } from "./types.js";
