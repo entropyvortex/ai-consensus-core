@@ -159,25 +159,29 @@ describe("extractClaims — contract: one call, soft-fail, quotes checked agains
   });
 });
 
-describe("extractTrailingConfidence — contract: last marker followed by digits", () => {
+describe("extractConfidence — contract: last marker followed by digits (Roundtable parity)", () => {
   it("picks the trailing marker over an earlier preview", () => {
-    expect(extractTrailingConfidence("I had CONFIDENCE: 30 earlier but after reviewing\n\nCONFIDENCE: 88")).toBe(88);
+    expect(extractConfidence("I had CONFIDENCE: 30 earlier but after reviewing\n\nCONFIDENCE: 88")).toBe(88);
   });
 
-  it("ignores markers without digits, unlike extractConfidence", () => {
-    const text = "Confidence: high in the approach.\n\nCONFIDENCE: 72";
-    expect(extractTrailingConfidence(text)).toBe(72);
-    expect(extractConfidence(text)).toBe(50); // existing first-marker behaviour is unchanged
+  it("ignores markers without digits", () => {
+    expect(extractConfidence("Confidence: high in the approach.\n\nCONFIDENCE: 72")).toBe(72);
   });
 
   it("clamps, defaults to 50, and is case-insensitive", () => {
-    expect(extractTrailingConfidence("no marker here")).toBe(50);
-    expect(extractTrailingConfidence("CONFIDENCE: 150")).toBe(100);
-    expect(extractTrailingConfidence("confidence:\n 9")).toBe(9);
-    expect(extractTrailingConfidence("JUDGE_CONFIDENCE: 61")).toBe(61);
-    expect(extractTrailingConfidence("CONFIDENCE: none")).toBe(50);
+    expect(extractConfidence("no marker here")).toBe(50);
+    expect(extractConfidence("CONFIDENCE: 150")).toBe(100);
+    expect(extractConfidence("confidence:\n 9")).toBe(9);
+    expect(extractConfidence("JUDGE_CONFIDENCE: 61")).toBe(61);
+    expect(extractConfidence("CONFIDENCE: none")).toBe(50);
   });
 });
+describe("extractTrailingConfidence — deprecated alias", () => {
+  it("is extractConfidence", () => {
+    expect(extractTrailingConfidence).toBe(extractConfidence);
+  });
+});
+
 
 describe("cost cap — contract: throw only when strictly above a positive cap", () => {
   it("formats the error like Roundtable did", () => {
